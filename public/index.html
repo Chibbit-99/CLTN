@@ -11,67 +11,80 @@
         ul { list-style-type: none; padding: 0; }
         li { background: #e2e8f0; padding: 10px; margin: 5px 0; border-radius: 4px; }
         .status { font-weight: bold; color: #4a5568; margin-bottom: 15px; }
+        /* Style for the VPN error message block */
+        .vpn-error { color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 15px; border-radius: 4px; font-weight: bold; text-align: center; }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div id="app-content" class="container">
         <h2>Regional Network</h2>
         <div id="status" class="status">Detecting region...</div>
         <h3>Devices in your area:</h3>
         <ul id="device-list"></ul>
     </div>
 
-<script>
-    const statusDiv = document.getElementById('status');
-    const deviceList = document.getElementById('device-list');
+    <script>
+        const appContent = document.getElementById('app-content');
+        const statusDiv = document.getElementById('status');
+        const deviceList = document.getElementById('device-list');
 
-    // Updated function targeting your secure server endpoint
-    async function getRegion() {
-        try {
-            const response = await fetch('/api/get-region');
-            const data = await response.json();
-            return data["region"];
-        } catch (error) {
-            console.error('Error fetching geolocation from server:', error);
-            return "Unknown Region";
-        }
-    }
-
-    async function init() {
-        const deviceName = prompt("What is your device called?");
-        if (!deviceName) {
-            statusDiv.textContent = "Device name is required to join.";
-            return;
-        }
-
-        const region = await getRegion();
-        statusDiv.textContent = `Region: ${region} | Device: ${deviceName}`;
-
-        const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-        const socket = new WebSocket(`${protocol}${window.location.host}`);
-
-        socket.onopen = () => {
-            socket.send(JSON.stringify({ type: 'join', region, deviceName }));
-        };
-
-        socket.onmessage = (event) => {
-            const data = JSON.parse(event.data);
-            if (data.type === 'update') {
-                deviceList.innerHTML = '';
-                data.devices.forEach(device => {
-                    const li = document.createElement('li');
-                    li.textContent = device;
-                    deviceList.appendChild(li);
-                });
+        async function getRegion() {
+            try {
+                const response = await fetch('/api/get-region');
+                const data = await response.json();
+                return data["region"];
+            } catch (error) {
+                console.error('Error fetching geolocation from server:', error);
+                return "";
             }
-        };
+        }
 
-        socket.onclose = () => {
-            statusDiv.textContent = "Disconnected from network.";
-        };
-    }
+        async function init() {
+            const region = await getRegion();
 
-    init();
-</script>
+            // Check if region is empty, null, or unknown due to a VPN proxy connection
+            if (!region || region.trim() === "" || region === "Unknown Region") {
+                appContent.innerHTML = `
+                    <div class="vpn-error">
+                        VPN detected. Please turn it off to use this service.
+                    </div>
+                `;
+                return; // Stop execution immediately; do not prompt for name or connect to socket
+            }
+
+            const deviceName = prompt("What is your device called?");
+            if (!deviceName) {
+                statusDiv.textContent = "Device name is required to join.";
+                return;
+            }
+
+            statusDiv.textContent = `Region: ${region} | Device: ${deviceName}`;
+
+            const protocol = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+            const socket = new WebSocket(`${protocol}${window.location.host}`);
+
+            socket.onopen = () => {
+                socket.send(JSON.stringify({ type: 'join', region, deviceName }));
+            };
+
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'update') {
+                    deviceList.innerHTML = '';
+                    data.devices.forEach(device => {
+                        const li = document.createElement('li');
+                        li.textContent = device;
+                        deviceList.appendChild(li);
+                    });
+                }
+            };
+
+            socket.onclose = () => {
+                statusDiv.textContent = "Disconnected from network.";
+            };
+        }
+
+        init();
+    </script>
 </body>
 </html>
