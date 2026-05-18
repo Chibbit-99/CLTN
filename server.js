@@ -1,17 +1,30 @@
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const path = require('path');
+const geoip = require('geoip-lite'); // Add geoip-lite dependency
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Serve frontend files from a 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
+
+// New HTTP endpoint to get region safely from the server side
+app.get('/api/get-region', (req, res) => {
+    // Get client IP, accounting for Render's reverse proxy structure
+    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket.remoteAddress;
+    
+    // Default fallback for local testing (127.0.0.1 won't return a region)
+    if (ip === '127.0.0.1' || ip === '::1') {
+        return res.json({ region: "Local Network" });
+    }
+
+    const geo = geoip.lookup(ip);
+    res.json({ region: geo ? geo.region : "Unknown Region" });
+});
 
 const server = app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 const wss = new WebSocketServer({ server });
 
-// Store active connections: { socketId: { ws, region, deviceName } }
 const clients = new Map();
 
 wss.on('connection', (ws) => {
@@ -20,9 +33,7 @@ wss.on('connection', (ws) => {
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
-            
             if (data.type === 'join') {
-                // Register the new client details
                 clients.set(id, { ws, region: data.region, deviceName: data.deviceName });
                 broadcastRegionUpdate(data.region);
             }
@@ -41,18 +52,14 @@ wss.on('connection', (ws) => {
     });
 });
 
-// Send updated list only to devices sharing the same region
 function broadcastRegionUpdate(region) {
     const devicesInRegion = [];
-    
-    // Gather all device names in this specific region
     clients.forEach((client) => {
         if (client.region === region) {
             devicesInRegion.push(client.deviceName);
         }
     });
 
-    // Send the list to every socket in this region
     clients.forEach((client) => {
         if (client.region === region && client.ws.readyState === 1) {
             client.ws.send(JSON.stringify({ type: 'update', devices: devicesInRegion }));
