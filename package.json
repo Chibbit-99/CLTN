@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "express": "^4.19.2",
+    "geoip-lite": "^1.4.10",
     "ws": "^8.16.0"
   }
 }
